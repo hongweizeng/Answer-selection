@@ -9,9 +9,9 @@ import math
 import time
 
 import Model
-from dataset import Dataset
-from optim import Optim
-from criterion import Criterion
+from Dataset import Dataset
+from Optim import Optim
+from Criterion import Criterion
 
 parser = argparse.ArgumentParser(description='train.py')
 
@@ -146,43 +146,6 @@ def NMTCriterion(vocabSize):
     return crit
 
 
-def memoryEfficientLoss(outputs, targets, generator, crit, eval=False):
-    # compute generations one piece at a time
-    num_correct, loss = 0, 0
-    outputs = Variable(outputs.data, requires_grad=(not eval), volatile=eval)
-
-    targets = targets[1:] # exclude the <s> from the begin
-
-    batch_size = outputs.size(1)
-    
-    # print "outputs", outputs
-    # print "targets", targets
-
-    outputs_split = torch.split(outputs.t().contiguous(), opt.max_generator_batches)
-    targets_split = torch.split(targets, opt.max_generator_batches)
-
-    for i, (out_t, targ_t) in enumerate(zip(outputs_split, targets_split)):
-        # print out_t.size(0), out_t.size(1)
-        out_t = out_t.view(-1, out_t.size(2))
-        # print out_t.size(0), out_t.size(1)
-        scores_t = generator(out_t)
-        # print scores_t.size(0), targ_t.size(0), targ_t.size(1)
-        targ_t = targ_t.view(-1)
-        # print targ_t.size(0)
-        # print targ_t
-        loss_t = crit(scores_t, targ_t)
-        pred_t = scores_t.max(1)[1]
-        num_correct_t = pred_t.data.eq(targ_t.data).masked_select(targ_t.ne(Constants.PAD).data).sum()
-        num_correct += num_correct_t
-        loss += loss_t.data[0]
-        if not eval:
-            loss_t.div(batch_size).backward()
-
-    grad_output = None if outputs.grad is None else outputs.grad.data
-    # print "loss", loss
-    return loss, grad_output, num_correct
-
-
 def eval(model, criterion, data):
     total_loss = 0
     total_words = 0
@@ -221,18 +184,20 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
         total_loss, total_words, total_num_correct = 0, 0, 0
         report_loss, report_tgt_words, report_src_words, report_num_correct = 0, 0, 0, 0
         start = time.time()
+        # shuffle the data every epoch
+        trainData.shuffle()
         for i in range(len(trainData)):
 
             batchIdx = batchOrder[i] if epoch > opt.curriculum else i
-            batch = trainData[batchIdx]#[:-1] # exclude original indices
+            batch = trainData[batchIdx]
             model.zero_grad()
 
-            targets = batch[1]
-            outputs = model(batch[0], targets)
-            loss, gradOutput, num_correct = memoryEfficientLoss(
-                    outputs, targets, model.generator, criterion)
+            labels = batch[2]
+            scores = model(batch[0], batch[1])
+            loss, gradOutput, num_correct = criterion.loss(
+                    scores, labels, model.generator, criterion)
 
-            outputs.backward(gradOutput)
+            scores.backward(gradOutput)
 
             # update the parameters
             optim.step()
@@ -322,7 +287,7 @@ def main():
 
     generator = nn.Sequential(
         nn.Linear(opt.dec_layers, 1),
-        nn.LogSoftmax())
+        nn.Softmax())
 
     model = Model.AnswerSelectModel(encoder, decoder, opt, len(dicts))
 
@@ -358,8 +323,9 @@ def main():
         for p in model.parameters():
             p.data.uniform_(-opt.param_init, opt.param_init)
 
-        encoder.load_pretrained_vectors(opt)
-        decoder.load_pretrained_vectors(opt)
+        # encoder.load_pretrained_vectors(opt)
+        # decoder.load_pretrained_vectors(opt)
+        model.load_pretrained_vectors(opt)
 
         optim = Optim(
             opt.optim, opt.learning_rate, opt.max_grad_norm,
@@ -379,7 +345,7 @@ def main():
     nParams = sum([p.nelement() for p in model.parameters()])
     print('* number of parameters: %d' % nParams)
 
-    # criterion = criterion.NMTCriterion(len(dicts["word2index"]['tgt']))
+    criterion = Criterion()
 
     trainModel(model, trainData, validData, dataset, optim, criterion)
 
