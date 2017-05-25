@@ -1,10 +1,12 @@
-# -*- coding:utf-8 -*-
+# -*- coding: utf-8 -*-
 import numpy as np
 import re
 import itertools
 from collections import Counter
 import argparse
 import os
+import sys
+import codecs
 import torch
 
 import jieba
@@ -68,7 +70,7 @@ def clean_str(string):
 
 
 def load_data_and_labels(fileName):
-    examples = [s.strip().split("    ") for s in open(fileName, "r").readlines()]
+    examples = [s.strip().split("	") for s in codecs.open(fileName, "r", encoding='utf-8-sig').readlines()]
     questions = [list(jieba.cut(clean_str(example[1]))) for example in examples]
     answers = [list(jieba.cut(clean_str(example[2]))) for example in examples]
     labels = [int(example[0]) for example in examples]
