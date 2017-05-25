@@ -36,7 +36,7 @@ class Dataset(object):
     def __getitem__(self, index):
         assert index < self.numBatches, "%d > %d" % (index, self.numBatches)
         questions, lengths = self._batchify(
-            self.questions[index*self.batch_size:(index+1)*self.batch_size])
+            self.questions[index*self.batch_size:(index+1)*self.batch_size], align_right=True, include_lengths=True)
         answers = self._batchify(
             self.answers[index*self.batch_size:(index+1)*self.batch_size])
         labels = self._batchify(

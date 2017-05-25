@@ -36,7 +36,7 @@ parser.add_argument('-layers', type=int, default=2,
                     help='Number of layers in the LSTM encoder/decoder')
 parser.add_argument('-rnn_size', type=int, default=512,
                     help='Size of LSTM hidden states')
-parser.add_argument('-embedding_size', type=int, default=512,
+parser.add_argument('-word_vec_size', type=int, default=512,
                     help='Word embedding sizes')
 parser.add_argument('-input_feed', type=int, default=1,
                     help="""Feed the context vector at each time step as
@@ -111,14 +111,14 @@ parser.add_argument('-start_decay_at', type=int, default=8,
 
 #pretrained word vectors
 
-parser.add_argument('-pre_word_vecs_enc',
+parser.add_argument('-pre_word_vecs',
                     help="""If a valid path is specified, then this will load
                     pretrained word embeddings on the encoder side.
                     See README for specific formatting instructions.""")
-parser.add_argument('-pre_word_vecs_dec',
-                    help="""If a valid path is specified, then this will load
-                    pretrained word embeddings on the decoder side.
-                    See README for specific formatting instructions.""")
+# parser.add_argument('-pre_word_vecs_dec',
+#                     help="""If a valid path is specified, then this will load
+#                     pretrained word embeddings on the decoder side.
+#                     See README for specific formatting instructions.""")
 
 # GPU
 parser.add_argument('-gpus', default=[], nargs='+', type=int,
@@ -136,15 +136,6 @@ if torch.cuda.is_available() and not opt.gpus:
 
 if opt.gpus:
     cuda.set_device(opt.gpus[0])
-
-def NMTCriterion(vocabSize):
-    weight = torch.ones(vocabSize)
-    weight[Constants.PAD] = 0
-    crit = nn.NLLLoss(weight, size_average=False)
-    if opt.gpus:
-        crit.cuda()
-    return crit
-
 
 def eval(model, criterion, data):
     total_loss = 0
@@ -184,8 +175,6 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
         total_loss, total_words, total_num_correct = 0, 0, 0
         report_loss, report_tgt_words, report_src_words, report_num_correct = 0, 0, 0, 0
         start = time.time()
-        # shuffle the data every epoch
-        trainData.shuffle()
         for i in range(len(trainData)):
 
             batchIdx = batchOrder[i] if epoch > opt.curriculum else i
@@ -276,7 +265,7 @@ def main():
                              volatile=True)
 
     dicts = dataset['word2index']
-    print(' * vocabulary size: %d' % (len(dicts["word2index"])))
+    print(' * vocabulary size: %d' % (len(dicts)))
     print(' * number of training sentences. %d' % len(dataset['train']['question']))
     print(' * maximum batch size. %d' % opt.batch_size)
 
@@ -286,7 +275,7 @@ def main():
     decoder = Model.Decoder(opt)
 
     generator = nn.Sequential(
-        nn.Linear(opt.dec_layers, 1),
+        nn.Linear(opt.dec_layers, 2),
         nn.Softmax())
 
     model = Model.AnswerSelectModel(encoder, decoder, opt, len(dicts))

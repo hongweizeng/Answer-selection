@@ -66,13 +66,14 @@ def clean_str(string):
     string = re.sub(r"\)", " \) ", string)
     string = re.sub(r"\?", " \? ", string)
     string = re.sub(r"\s{2,}", " ", string)
+    # print string.strip().lower()
     return string.strip().lower()
 
 
 def load_data_and_labels(fileName):
     examples = [s.strip().split("	") for s in codecs.open(fileName, "r", encoding='utf-8-sig').readlines()]
-    questions = [list(jieba.cut(clean_str(example[1]))) for example in examples]
-    answers = [list(jieba.cut(clean_str(example[2]))) for example in examples]
+    questions = [list(jieba.cut(example[1])) for example in examples]
+    answers = [list(jieba.cut(example[2])) for example in examples]
     labels = [int(example[0]) for example in examples]
     return questions, answers, labels
 
@@ -88,13 +89,14 @@ def build_vocab(sequence, maximum_vocab_size=50000):
     index2word[0], index2word[1] = 0, 1
     return word2count, word2index, index2word
 
-def makeData(questions, answers, labels, word2index, shuffle=opt.shuffle):
+def makeData(questions, answers, labels, word2index, shuffle=opt.shuffle, max_sentence_len=50):
     assert len(questions) == len(answers) and len(answers) == len(labels)
     sizes = []
     for idx in range(len(questions)):
-        questions[idx] = torch.LongTensor([word2index[word] if word in word2index else 0 for word in questions[idx]])
-        answers[idx] = torch.LongTensor([word2index[word] if word in word2index else 0 for word in answers[idx]])
-        sizes += [len(questions)]
+        questions[idx] = torch.LongTensor([word2index[word] if word in word2index else 1 for word in questions[idx][:max_sentence_len]])
+        # print questions[idx]
+        answers[idx] = torch.LongTensor([word2index[word] if word in word2index else 1 for word in answers[idx][:max_sentence_len]])
+        sizes += [len(questions[idx])]
         labels[idx] = torch.LongTensor([labels[idx]])
 
     if shuffle == 1:
@@ -118,7 +120,10 @@ def main():
     questions_train, answers_train, labels_train = load_data_and_labels(opt.train_file)
     questions_dev, answers_dev, labels_dev = load_data_and_labels(opt.dev_file)
 
+    # print answers_dev
     word2count, word2index, index2word = build_vocab(questions_train + answers_train + questions_dev + answers_dev, opt.maximum_vocab_size)
+
+    # print word2index
 
     print('Preparing training ...')
     train = {}
