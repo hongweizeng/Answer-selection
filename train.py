@@ -80,7 +80,7 @@ parser.add_argument('-start_epoch', type=int, default=1,
 parser.add_argument('-param_init', type=float, default=0.1,
                     help="""Parameters are initialized over uniform distribution
                     with support (-param_init, param_init)""")
-parser.add_argument('-optim', default='adam',
+parser.add_argument('-optim', default='sgd',
                     help="Optimization method. [sgd|adagrad|adadelta|adam]")
 parser.add_argument('-max_grad_norm', type=float, default=5,
                     help="""If the norm of the gradient vector exceeds this,
@@ -96,7 +96,7 @@ parser.add_argument('-extra_shuffle', action="store_true",
                     shuffle and re-assign mini-batches""")
 
 #learning rate
-parser.add_argument('-learning_rate', type=float, default=0.001,
+parser.add_argument('-learning_rate', type=float, default=0.01,
                     help="""Starting learning rate. If adagrad/adadelta/adam is
                     used, then this is the global learning rate. Recommended
                     settings: sgd = 1, adagrad = 0.1, adadelta = 1, adam = 0.001""")
@@ -124,7 +124,7 @@ parser.add_argument('-pre_word_vecs',
 parser.add_argument('-gpus', default=[], nargs='+', type=int,
                     help="Use CUDA on the listed devices.")
 
-parser.add_argument('-log_interval', type=int, default=1,
+parser.add_argument('-log_interval', type=int, default=50,
                     help="Print stats at this interval.")
 
 opt = parser.parse_args()
@@ -137,30 +137,29 @@ if torch.cuda.is_available() and not opt.gpus:
 if opt.gpus:
     cuda.set_device(opt.gpus[0])
 
-def eval(model, criterion, data):
+def eval(model, criterion, data, total_example_nums):
     total_loss = 0
-    total_words = 0
     total_num_correct = 0
 
     model.eval()
     for i in range(len(data)):
         batch = data[i]
-        targets = batch[1]
-        outputs = model(batch[0], targets)
-        loss, _, num_correct = memoryEfficientLoss(
-                outputs, targets, model.generator, criterion, eval=True)
+        labels = batch[2]
+        scores = model(batch[0], batch[1])
+        loss, _, num_correct, accuracy, precision, recall = criterion.loss(
+                scores, labels, model.generator, eval=True)
         total_loss += loss
         total_num_correct += num_correct
-        total_words += targets.data.ne(Constants.PAD).sum()
 
     model.train()
-    return total_loss / total_words, total_num_correct / total_words
+    return total_loss, total_num_correct / total_example_nums, accuracy, precision, recall
 
 
 def trainModel(model, trainData, validData, dataset, optim, criterion):
     print(model)
     model.train()
 
+    total_example_nums = len(dataset['train']['question'])
     # define criterion of each GPU
 
     start_time = time.time()
@@ -173,7 +172,7 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
         batchOrder = torch.randperm(len(trainData))
 
         total_loss, total_words, total_num_correct = 0, 0, 0
-        report_loss, report_tgt_words, report_src_words, report_num_correct = 0, 0, 0, 0
+        report_loss, report_tgt_words, report_src_words, report_num_correct, report_num_example = 0, 0, 0, 0, 0
         start = time.time()
         for i in range(len(trainData)):
 
@@ -183,50 +182,60 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
 
             labels = batch[2]
             scores = model(batch[0], batch[1])
-            loss, gradOutput, num_correct = criterion.loss(
-                    scores, labels, model.generator, criterion)
+            loss, gradOutput, num_correct, accuracy, precision, recall = criterion.loss(
+                    scores, labels, model.generator)
 
-            scores.backward(gradOutput)
+            # scores.backward(gradOutput)
 
             # update the parameters
             optim.step()
 
-            num_words = targets.data.ne(Constants.PAD).sum()
             report_loss += loss
             report_num_correct += num_correct
-            report_tgt_words += num_words
-            report_src_words += sum(batch[0][1])
+            report_num_example += batch[1].size(1)
             total_loss += loss
             total_num_correct += num_correct
-            total_words += num_words
-            if i % opt.log_interval == -1 % opt.log_interval:
-                print("Epoch %2d, %5d/%5d; acc: %6.2f; ppl: %6.2f; %3.0f src tok/s; %3.0f tgt tok/s; %6.0f s elapsed" %
-                      (epoch, i+1, len(trainData),
-                      report_num_correct / report_tgt_words * 100,
-                      math.exp(report_loss / report_tgt_words),
-                      report_src_words/(time.time()-start),
-                      report_tgt_words/(time.time()-start),
-                      time.time()-start_time))
 
-                report_loss = report_tgt_words = report_src_words = report_num_correct = 0
+            # accuracy: (TP+TN)/(TP+FN+FP+TN)
+
+            # precision
+
+            # recall: TP/(TP+FN)
+
+
+            if i % opt.log_interval == -1 % opt.log_interval:
+                print("Epoch %2d, %5d/%5d; loss: %6.2f; acc: %6.2f; %6.0f s elapsed; accuracy: %6.2f; precision: %6.2f; recall: %6.2f" %
+                      (epoch, i+1, len(trainData),
+                      loss,
+                      report_num_correct / report_num_example * 100,
+                      time.time()-start_time),
+                      accuracy,
+                      precision,
+                      recall)
+
+                report_loss = report_num_correct = report_num_example = 0
                 start = time.time()
 
-        return total_loss / total_words, total_num_correct / total_words
+        return total_loss, total_num_correct / total_example_nums, accuracy, precision, recall
 
     for epoch in range(opt.start_epoch, opt.epochs + 1):
         print('')
 
         #  (1) train for one epoch on the training set
-        train_loss, train_acc = trainEpoch(epoch)
-        train_ppl = math.exp(min(train_loss, 100))
-        print('Train perplexity: %g' % train_ppl)
-        print('Train accuracy: %g' % (train_acc*100))
+        train_loss, train_acc, train_accuracy, train_precision, train_recall = trainEpoch(epoch)
+        print('Train acc: %g' % (train_acc*100))
+        print('Train accuracy: %g' % (train_accuracy*100))
+        print('Train precision: %g' % (train_precision*100))
+        print('Train recall: %g' % (train_recall*100))
+
 
         #  (2) evaluate on the validation set
-        valid_loss, valid_acc = eval(model, criterion, validData)
-        valid_ppl = math.exp(min(valid_loss, 100))
-        print('Validation perplexity: %g' % valid_ppl)
-        print('Validation accuracy: %g' % (valid_acc*100))
+        valid_loss, valid_acc, valid_accuracy, valid_precision, valid_recall = eval(model, criterion, validData, len(dataset['test']['question']))
+        print('Validation acc: %g' % (valid_acc*100))
+        print('Validation accuracy: %g' % (valid_accuracy*100))
+        print('Validation precision: %g' % (valid_precision*100))
+        print('Validation recall: %g' % (valid_recall*100))
+
 
         #  (3) update the learning rate
         optim.updateLearningRate(valid_loss, epoch)
@@ -238,13 +247,13 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
         checkpoint = {
             'model': model_state_dict,
             'generator': generator_state_dict,
-            'dicts': dataset['dicts'],
+            'dicts': dataset['word2index'],
             'opt': opt,
             'epoch': epoch,
             'optim': optim
         }
         torch.save(checkpoint,
-                   '%s_acc_%.2f_ppl_%.2f_e%d.pt' % (opt.save_model, 100*valid_acc, valid_ppl, epoch))
+                   '%s_acc_%.2f_prec_%.2f_rec_%.2f_e%d.pt' % (opt.save_model, 100*valid_accuracy, 100*valid_precision, 100*valid_recall, epoch))
 
 def main():
 
@@ -276,7 +285,7 @@ def main():
 
     generator = nn.Sequential(
         nn.Linear(opt.dec_layers, 2),
-        nn.Softmax())
+        nn.LogSoftmax())
 
     model = Model.AnswerSelectModel(encoder, decoder, opt, len(dicts))
 
@@ -334,7 +343,7 @@ def main():
     nParams = sum([p.nelement() for p in model.parameters()])
     print('* number of parameters: %d' % nParams)
 
-    criterion = Criterion()
+    criterion = Criterion(model, opt)
 
     trainModel(model, trainData, validData, dataset, optim, criterion)
 

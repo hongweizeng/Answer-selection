@@ -107,7 +107,7 @@ class Decoder(nn.Module):
         scrores = []
         for i in range(self.layers):
             outputs = outputs.unsqueeze(1) # batch, 1, seq_len, 2*hidden
-            outputs = self.conv(outputs) # batch, out_channels, seq_len + self.kernel_size - 1, 1
+            conv_out = self.conv(outputs) # batch, out_channels, seq_len + self.kernel_size - 1, 1
             # outputs = outputs.narrow(2, 0, outputs.size(2)-self.kernel_size) # remove the last k elements
 
             # This is the residual connection,
@@ -116,7 +116,7 @@ class Decoder(nn.Module):
             if i > 0:
                 conv_out = conv_out + outputs
 
-            outputs = F.relu(outputs)
+            outputs = F.relu(conv_out)
             outputs = outputs.squeeze(3).transpose(1,2) # batch, seq_len, 2*hidden
             A, B = outputs.split(self.hidden_size, 2) # A, B: batch, seq_len, hidden
             A2 = A.contiguous().view(-1, A.size(2)) # A2: batch * seq_len, hidden
@@ -154,7 +154,6 @@ class Decoder(nn.Module):
             outputs = dec_attn2 + tgt_attns # outpus: batch, seq_len_tgt - 1, 2 * hidden_size
 
         scrores = torch.stack(scrores, 1)
-
         return scrores
 
 
