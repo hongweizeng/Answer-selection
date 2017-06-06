@@ -146,13 +146,13 @@ def eval(model, criterion, data, total_example_nums):
         batch = data[i]
         labels = batch[2]
         scores = model(batch[0], batch[1])
-        loss, _, num_correct, accuracy, precision, recall = criterion.loss(
+        loss, _, num_correct = criterion.loss(
                 scores, labels, model.generator, eval=True)
         total_loss += loss
         total_num_correct += num_correct
 
     model.train()
-    return total_loss, total_num_correct / total_example_nums, accuracy, precision, recall
+    return total_loss, total_num_correct / total_example_nums#, accuracy, precision, recall
 
 
 def trainModel(model, trainData, validData, dataset, optim, criterion):
@@ -182,10 +182,10 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
 
             labels = batch[2]
             scores = model(batch[0], batch[1])
-            loss, gradOutput, num_correct, accuracy, precision, recall = criterion.loss(
+            loss, gradOutput, num_correct = criterion.loss(
                     scores, labels, model.generator)
 
-            # scores.backward(gradOutput)
+            scores.backward(gradOutput)
 
             # update the parameters
             optim.step()
@@ -204,38 +204,37 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
 
 
             if i % opt.log_interval == -1 % opt.log_interval:
-                print("Epoch %2d, %5d/%5d; loss: %6.2f; acc: %6.2f; %6.0f s elapsed; accuracy: %6.2f; precision: %6.2f; recall: %6.2f" %
+                print("Epoch %2d, %5d/%5d; loss: %6.2f; acc: %6.2f; %6.0f s elapsed;" %
                       (epoch, i+1, len(trainData),
                       loss,
                       report_num_correct / report_num_example * 100,
-                      time.time()-start_time),
-                      accuracy,
-                      precision,
-                      recall)
+                      time.time()-start_time))
 
                 report_loss = report_num_correct = report_num_example = 0
                 start = time.time()
 
-        return total_loss, total_num_correct / total_example_nums, accuracy, precision, recall
+        return total_loss, total_num_correct / total_example_nums
 
     for epoch in range(opt.start_epoch, opt.epochs + 1):
         print('')
 
+
         #  (1) train for one epoch on the training set
-        train_loss, train_acc, train_accuracy, train_precision, train_recall = trainEpoch(epoch)
-        print('Train acc: %g' % (train_acc*100))
-        print('Train accuracy: %g' % (train_accuracy*100))
-        print('Train precision: %g' % (train_precision*100))
-        print('Train recall: %g' % (train_recall*100))
+        train_loss, train_acc = trainEpoch(epoch)
+        # print('Train acc: %g' % (train_acc*100))
 
-
+        criterion.records = []
         #  (2) evaluate on the validation set
-        valid_loss, valid_acc, valid_accuracy, valid_precision, valid_recall = eval(model, criterion, validData, len(dataset['test']['question']))
+        valid_loss, valid_acc = eval(model, criterion, validData, len(dataset['test']['question']))
         print('Validation acc: %g' % (valid_acc*100))
-        print('Validation accuracy: %g' % (valid_accuracy*100))
-        print('Validation precision: %g' % (valid_precision*100))
-        print('Validation recall: %g' % (valid_recall*100))
 
+        # print "criterion.records", criterion.records
+        writeFileName = 'generated/e%d_acc_%.2f.txt' % (epoch, 100*valid_acc)
+        with open(writeFileName, "w") as microWriter:
+            for records in criterion.records:
+                for record in records:
+                    microWriter.write(str(record) + "\n")
+        # microWriter.close()
 
         #  (3) update the learning rate
         optim.updateLearningRate(valid_loss, epoch)
@@ -253,7 +252,7 @@ def trainModel(model, trainData, validData, dataset, optim, criterion):
             'optim': optim
         }
         torch.save(checkpoint,
-                   '%s_acc_%.2f_prec_%.2f_rec_%.2f_e%d.pt' % (opt.save_model, 100*valid_accuracy, 100*valid_precision, 100*valid_recall, epoch))
+                   '%s_acc_%.2f_e%d.pt' % (opt.save_model, 100*valid_acc, epoch))
 
 def main():
 

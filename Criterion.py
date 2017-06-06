@@ -7,7 +7,7 @@ from torch.autograd import Variable
 
 class Criterion(object):
     
-    def __init__(self, model, opt, weights=[0.08, 0.92], factor=0.0005):
+    def __init__(self, model, opt, weights=[0.05, 0.95], factor=0.0005):
     	super(Criterion, self).__init__()
         weights = torch.FloatTensor(weights)
         self.crit = nn.NLLLoss(weight=weights, size_average=False)
@@ -18,17 +18,24 @@ class Criterion(object):
         self.model = model
         self.factor = factor
 
+        self.records = []
+
     def loss(self, scores, labels, generator, eval=False):
         # compute generations one piece at a time
         num_correct, loss = 0, 0
-        scores = Variable(scores.data, requires_grad=(not eval), volatile=eval)
+        _scores = Variable(scores.data, requires_grad=(not eval), volatile=eval)
+        scores = generator(_scores)
 
-        grad_output = None if scores.grad is None else scores.grad.data
+        self.records += [scores[:,1].data]
 
-        scores = generator(scores)
+        # print "scores", scores
+        # print "scores_for_one", scores_for_one
+
         batch_size = scores.size(0)
         labels = labels.view(-1)
         # loss = torch.dot(torch.log(scores), labels) + torch.dot(torch.log(1-scores), (1-labels))
+
+        # print "labels: ", labels
         loss = self.crit(scores, labels)
 
         # reg_loss = 0
@@ -40,14 +47,14 @@ class Criterion(object):
         pred = scores.max(1)[1]
         num_correct = pred.data.eq(labels.data).sum()
 
-        tp = pred.data.eq(labels.data).masked_select(labels.ne(0).data).sum()
-        tn = pred.data.eq(labels.data).masked_select(labels.ne(1).data).sum()
+        # tp = pred.data.eq(labels.data).masked_select(labels.ne(0).data).sum()
+        # tn = pred.data.eq(labels.data).masked_select(labels.ne(1).data).sum()
 
-        all_p = labels.data.eq(1).sum()
-        all_n = labels.data.eq(0).sum()
+        # all_p = labels.data.eq(1).sum()
+        # all_n = labels.data.eq(0).sum()
 
-        fn = all_p - tp
-        fp = all_n - tn
+        # fn = all_p - tp
+        # fp = all_n - tn
 
 
         # accuracy: (TP+TN)/(TP+FN+FP+TN)
@@ -64,4 +71,5 @@ class Criterion(object):
         if not eval:
             loss.div(batch_size).backward()
 
-        return loss_data, grad_output, num_correct, tp, tn, fn, fp
+        grad_output = None if _scores.grad is None else _scores.grad.data
+        return loss_data, grad_output, num_correct

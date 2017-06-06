@@ -23,10 +23,10 @@ parser.add_argument('-train_file', type=str, default="./data/train.txt",
 parser.add_argument('-dev_file', type=str, default="./data/dev.txt",
                     help="Path to the training target data")
 
-parser.add_argument('-save_data', type=str, default="./data/imdb",
+parser.add_argument('-save_data', type=str, default="./data/micro",
                     help="Output file for the prepared data")
 
-parser.add_argument('-maximum_vocab_size', type=int, default=50000,
+parser.add_argument('-maximum_vocab_size', type=int, default=10000,
                     help="Size of the source vocabulary")
 
 parser.add_argument('-vocab',
@@ -89,7 +89,7 @@ def build_vocab(sequence, maximum_vocab_size=50000):
     index2word[0], index2word[1] = 0, 1
     return word2count, word2index, index2word
 
-def makeData(questions, answers, labels, word2index, shuffle=opt.shuffle, max_sentence_len=50):
+def makeData(questions, answers, labels, word2index, shuffle=opt.shuffle, sort=1, max_sentence_len=50):
     assert len(questions) == len(answers) and len(answers) == len(labels)
     sizes = []
     for idx in range(len(questions)):
@@ -107,11 +107,12 @@ def makeData(questions, answers, labels, word2index, shuffle=opt.shuffle, max_se
         labels = [labels[idx] for idx in perm]
         sizes = [sizes[idx] for idx in perm]
 
-    print("... sorting sentences")
-    _, perm = torch.sort(torch.Tensor(sizes))
-    questions = [questions[idx] for idx in perm]
-    answers = [answers[idx] for idx in perm]
-    labels = [labels[idx] for idx in perm]
+    if sort == 1:
+        print("... sorting sentences")
+        _, perm = torch.sort(torch.Tensor(sizes))
+        questions = [questions[idx] for idx in perm]
+        answers = [answers[idx] for idx in perm]
+        labels = [labels[idx] for idx in perm]
     return questions, answers, labels
 
 def main():
@@ -131,7 +132,7 @@ def main():
 
     print('Preparing validation ...')
     valid = {}
-    valid['question'], valid['answer'], valid["label"]  = makeData(questions_dev, answers_dev, labels_dev, word2index)
+    valid['question'], valid['answer'], valid["label"]  = makeData(questions_dev, answers_dev, labels_dev, word2index, shuffle=0, sort=0)
 
     print("saving data to \'" + opt.save_data + ".train.pt\'...")
     save_data = {
